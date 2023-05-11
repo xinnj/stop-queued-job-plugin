@@ -1,53 +1,44 @@
 package io.jenkins.plugins.stopqueuedjob;
 
 import hudson.Extension;
-import hudson.Util;
 import hudson.model.Job;
 import hudson.model.JobProperty;
 import hudson.model.JobPropertyDescriptor;
-import net.sf.json.JSONObject;
-import org.jenkinsci.plugins.blockqueuedjob.condition.BlockQueueCondition;
 import org.kohsuke.stapler.DataBoundConstructor;
-import org.kohsuke.stapler.StaplerRequest;
 
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
-import java.util.List;
+import java.util.logging.Logger;
 
 public class StopJobProperty extends JobProperty<Job<?, ?>> {
+    private static final Logger LOG = Logger.getLogger(StopJobProperty.class.getName());
 
-    @CheckForNull
-    private List<BlockQueueCondition> conditions;
+    private boolean stopSameJob;
+
+    private boolean stopDownstreamJob;
 
     @DataBoundConstructor
-    public BlockItemJobProperty(List<BlockQueueCondition> conditions) {
-        this.conditions = Util.fixNull(conditions);
+    public StopJobProperty(boolean stopSameJob, boolean stopDownstreamJob) {
+        this.stopSameJob = stopSameJob;
+        this.stopDownstreamJob = stopDownstreamJob;
     }
 
-    @Nonnull
-    public List<BlockQueueCondition> getConditions() {
-        return Util.fixNull(conditions);
+    public boolean getStopSameJob() {
+        return stopSameJob;
     }
 
-    @Override
-    public DescriptorImpl getDescriptor() {
-        return (DescriptorImpl) super.getDescriptor();
+    public boolean getStopDownstreamJob() {
+        return stopDownstreamJob;
     }
 
     @Extension
     public static class DescriptorImpl extends JobPropertyDescriptor {
         @Override
-        public JobProperty<?> newInstance(StaplerRequest req, JSONObject formData) throws FormException {
-            if (req.hasParameter("hasBlockedJobProperty")) {
-                return super.newInstance(req, formData);
-            } else {
-                return null;
-            }
+        public String getDisplayName() {
+            return Messages.DisplayName();
         }
 
         @Override
-        public String getDisplayName() {
-            return "Block Job";
+        public boolean isApplicable(Class<? extends Job> jobType) {
+            return true;
         }
     }
 }

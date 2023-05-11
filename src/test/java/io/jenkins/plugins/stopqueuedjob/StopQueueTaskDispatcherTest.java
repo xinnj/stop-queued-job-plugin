@@ -1,110 +1,78 @@
 package io.jenkins.plugins.stopqueuedjob;
 
-import hudson.model.*;
-import hudson.model.queue.CauseOfBlockage;
-import hudson.util.FormValidation;
-import jenkins.model.Jenkins;
-import org.jenkinsci.plugins.blockqueuedjob.condition.BlockQueueCondition;
-import org.jenkinsci.plugins.blockqueuedjob.condition.JobResultBlockQueueCondition;
-import org.junit.Assert;
+import hudson.model.FreeStyleBuild;
+import hudson.model.FreeStyleProject;
+import hudson.model.Label;
+import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
+import org.jenkinsci.plugins.workflow.job.WorkflowJob;
+import org.jenkinsci.plugins.workflow.job.WorkflowRun;
+import org.junit.Rule;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.Mock;
-import org.mockito.internal.util.reflection.Whitebox;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
+import org.jvnet.hudson.test.JenkinsRule;
 
-import java.util.ArrayList;
-import java.util.List;
+public class StopQueueTaskDispatcherTest {
 
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+    @Rule
+    public JenkinsRule jenkins = new JenkinsRule();
 
-/**
- * Created by Alina_Karpovich on 4/27/2015.
- */
-@RunWith(PowerMockRunner.class)
-@PrepareForTest({Jenkins.class, ItemGroup.class, AbstractBuild.class})
-public class BlockItemQueueTaskDispatcherTest {
-
-    @Mock private Queue.Item queueItem;
-    @Mock private Item item;
-    @Mock private AbstractProject project;
-    @Mock private BlockItemJobProperty blockProperty;
-    @Mock private BlockQueueCondition unblockingCondition;
-    @Mock private BlockQueueCondition blockingCondition;
-    @Mock private Queue.Task task;
+    final String name = "Bobby";
 
     @Test
-    public void canRunTaskNotProject() {
-        Whitebox.setInternalState(queueItem, "task", task);
-
-        BlockItemQueueTaskDispatcher dispatcher = new BlockItemQueueTaskDispatcher();
-        CauseOfBlockage result = dispatcher.canRun(queueItem);
-        Assert.assertNull(result);
+    public void testConfigRoundtrip() throws Exception {
+        FreeStyleProject project = jenkins.createFreeStyleProject();
+        project.getBuildersList().add(new HelloWorldBuilder(name));
+        project = jenkins.configRoundtrip(project);
+        jenkins.assertEqualDataBoundBeans(new HelloWorldBuilder(name), project.getBuildersList().get(0));
     }
 
     @Test
-    public void canRunNullBlockProperty() {
-        Whitebox.setInternalState(queueItem, "task", project);
-        when(project.getProperty(BlockItemJobProperty.class)).thenReturn(null);
+    public void testConfigRoundtripFrench() throws Exception {
+        FreeStyleProject project = jenkins.createFreeStyleProject();
+        HelloWorldBuilder builder = new HelloWorldBuilder(name);
+        builder.setUseFrench(true);
+        project.getBuildersList().add(builder);
+        project = jenkins.configRoundtrip(project);
 
-        BlockItemQueueTaskDispatcher dispatcher = new BlockItemQueueTaskDispatcher();
-        CauseOfBlockage result = dispatcher.canRun(queueItem);
-        verify(project).getProperty(BlockItemJobProperty.class);
-        Assert.assertNull(result);
+        HelloWorldBuilder lhs = new HelloWorldBuilder(name);
+        lhs.setUseFrench(true);
+        jenkins.assertEqualDataBoundBeans(lhs, project.getBuildersList().get(0));
     }
 
     @Test
-    public void canRunNullConditionsList() {
-        Whitebox.setInternalState(queueItem, "task", project);
-        when(project.getProperty(BlockItemJobProperty.class)).thenReturn(blockProperty);
-        when(blockProperty.getConditions()).thenReturn(null);
+    public void testBuild() throws Exception {
+        FreeStyleProject project = jenkins.createFreeStyleProject();
+        HelloWorldBuilder builder = new HelloWorldBuilder(name);
+        project.getBuildersList().add(builder);
 
-        BlockItemQueueTaskDispatcher dispatcher = new BlockItemQueueTaskDispatcher();
-        CauseOfBlockage result = dispatcher.canRun(queueItem);
-        verify(blockProperty).getConditions();
-        Assert.assertNull(result);
+        FreeStyleBuild build = jenkins.buildAndAssertSuccess(project);
+        jenkins.assertLogContains("Hello, " + name, build);
     }
 
     @Test
-    public void canRunUnblock() {
-        Whitebox.setInternalState(queueItem, "task", project);
-        when(project.getProperty(BlockItemJobProperty.class)).thenReturn(blockProperty);
-        when(blockProperty.getConditions()).thenReturn(makeConditions());
-        when(unblockingCondition.isUnblocked(queueItem)).thenReturn(true);
+    public void testBuildFrench() throws Exception {
 
-        BlockItemQueueTaskDispatcher dispatcher = new BlockItemQueueTaskDispatcher();
-        CauseOfBlockage result = dispatcher.canRun(queueItem);
-        verify(unblockingCondition).isUnblocked(queueItem);
-        Assert.assertNull(result);
+        FreeStyleProject project = jenkins.createFreeStyleProject();
+        HelloWorldBuilder builder = new HelloWorldBuilder(name);
+        builder.setUseFrench(true);
+        project.getBuildersList().add(builder);
+
+        FreeStyleBuild build = jenkins.buildAndAssertSuccess(project);
+        jenkins.assertLogContains("Bonjour, " + name, build);
     }
 
     @Test
-    public void canRunBlock() {
-        final String message = "blocked due to test reason";
-        Whitebox.setInternalState(queueItem, "task", project);
-        when(project.getProperty(BlockItemJobProperty.class)).thenReturn(blockProperty);
-        when(blockProperty.getConditions()).thenReturn(makeConditions());
-        when(blockingCondition.isBlocked(queueItem)).thenReturn(new CauseOfBlockage() {
-            @Override
-            public String getShortDescription() {
-                return message;
-            }
-        });
-
-        BlockItemQueueTaskDispatcher dispatcher = new BlockItemQueueTaskDispatcher();
-        CauseOfBlockage result = dispatcher.canRun(queueItem);
-        verify(blockingCondition).isBlocked(queueItem);
-        Assert.assertNotNull(result);
-        Assert.assertEquals(message, result.getShortDescription());
+    public void testScriptedPipeline() throws Exception {
+        String agentLabel = "my-agent";
+        jenkins.createOnlineSlave(Label.get(agentLabel));
+        WorkflowJob job = jenkins.createProject(WorkflowJob.class, "test-scripted-pipeline");
+        String pipelineScript
+                = "node {\n"
+                + "  greet '" + name + "'\n"
+                + "}";
+        job.setDefinition(new CpsFlowDefinition(pipelineScript, true));
+        WorkflowRun completedBuild = jenkins.assertBuildStatusSuccess(job.scheduleBuild2(0));
+        String expectedString = "Hello, " + name + "!";
+        jenkins.assertLogContains(expectedString, completedBuild);
     }
 
-    private List<BlockQueueCondition> makeConditions() {
-        List<BlockQueueCondition> conditions = new ArrayList<>();
-        conditions.add(unblockingCondition);
-        conditions.add(blockingCondition);
-        return conditions;
-    }
 }

@@ -18,6 +18,10 @@ public class StopQueueTaskDispatcher extends QueueTaskDispatcher {
             Job<?, ?> job = (Job<?, ?>) item.task;
 
             final StopJobProperty property = job.getProperty(StopJobProperty.class);
+            if (property.getStopSameJob()) {
+
+            }
+
             if (property != null) {
                 List<BlockQueueCondition> conditions = property.getConditions();
                 if (conditions != null) {
